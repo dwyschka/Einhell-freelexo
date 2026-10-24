@@ -54,6 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         update_interval=entry.options.get(
             "update_interval", entry.data.get("update_interval", 60)
         ),
+        keep_connected=entry.options.get("keep_connected", True),
     )
 
     # raises ConfigEntryNotReady itself when the first poll fails

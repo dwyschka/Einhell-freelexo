@@ -54,6 +54,7 @@ class EinhellMowerCoordinator(DataUpdateCoordinator[dict]):
         entry: ConfigEntry,
         connection: MowerBLE,
         update_interval: int,
+        keep_connected: bool = True,
     ) -> None:
         super().__init__(
             hass,
@@ -65,6 +66,7 @@ class EinhellMowerCoordinator(DataUpdateCoordinator[dict]):
         self.entry = entry
         self.connection = connection
         self.data = {}
+        self.keep_connected = keep_connected
         self._oneshot_done = False
 
     async def async_close(self) -> None:
@@ -96,6 +98,9 @@ class EinhellMowerCoordinator(DataUpdateCoordinator[dict]):
 
         self._oneshot_done = True
         await self.connection.update_rssi()
+        if not self.keep_connected:
+            # release the proxy connection slot between polls
+            await self.connection.disconnect()
         data["rssi"] = self.connection.rssi
         data["last_update"] = dt_util.utcnow().isoformat()
         return data

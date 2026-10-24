@@ -177,6 +177,10 @@ class EinhellMowerOptionsFlow(OptionsFlow):
                         ),
                     ): vol.All(int, vol.Range(min=15, max=3600)),
                     vol.Optional(
+                        "keep_connected",
+                        default=entry.options.get("keep_connected", True),
+                    ): bool,
+                    vol.Optional(
                         CONF_UUID_NOTIFY,
                         default=entry.data.get(CONF_UUID_NOTIFY, ""),
                     ): str,
