@@ -93,6 +93,7 @@ class MowerBLE:
                 self.hass, self.address, connectable=True
             )
             if device is None:
+                self._log_candidates()
                 raise MowerConnectionError(
                     f"{self.address} not seen by any Bluetooth adapter or proxy"
                 )
@@ -150,6 +151,40 @@ class MowerBLE:
 
             # give the module a moment before the first frame
             await asyncio.sleep(SETTLE_SECONDS)
+
+    def _log_candidates(self) -> None:
+        """List similarly named devices when the configured one is missing.
+
+        A rotating (random) BLE address would show up here as the same mower
+        under a different address.
+        """
+        tokens = ("mower", "einhell", "robot", "freelexo", "ein")
+        found = []
+        for info in bluetooth.async_discovered_service_info(
+            self.hass, connectable=True
+        ):
+            name = (info.name or "").lower()
+            if any(t in name for t in tokens) or info.address == self.address:
+                found.append(
+                    {
+                        "address": info.address,
+                        "name": info.name,
+                        "rssi": info.rssi,
+                    }
+                )
+        if found:
+            _LOGGER.warning(
+                "mower %s not reachable - nearby candidates: %s",
+                self.address,
+                found,
+            )
+        else:
+            _LOGGER.warning(
+                "mower %s not reachable and no similarly named device is "
+                "advertising - check range, connection slots or that the "
+                "mower is awake",
+                self.address,
+            )
 
     def _log_services(self) -> None:
         """Log the GATT tree so a failing setup can be diagnosed."""
