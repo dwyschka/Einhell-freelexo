@@ -85,8 +85,12 @@ class EinhellMowerCoordinator(DataUpdateCoordinator[dict]):
         for cmd, payload in sequence:
             try:
                 frame = await self._query(cmd, payload)
-            except (TimeoutError, MowerConnectionError, ProtocolError) as err:
-                raise UpdateFailed(f"query 0x{cmd:02X} failed: {err}") from err
+            except MowerConnectionError as err:
+                raise UpdateFailed(str(err)) from err
+            except (TimeoutError, ProtocolError) as err:
+                raise UpdateFailed(
+                    f"query 0x{cmd:02X} failed: {err}"
+                ) from err
             data.update(decode(frame))
             data[f"raw_0x{frame.code:02X}"] = frame.raw.hex(" ")
 

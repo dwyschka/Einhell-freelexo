@@ -84,7 +84,7 @@ class MowerBLE:
         self._on_disconnect = cb
 
     # -- connection ---------------------------------------------------------
-    async def connect(self, timeout: float = 30.0) -> None:
+    async def connect(self, timeout: float = 20.0) -> None:
         async with self._lock:
             if self.connected:
                 return
@@ -102,7 +102,7 @@ class MowerBLE:
                     BleakClientWithServiceCache,
                     device,
                     name="Einhell Mower",
-                    max_attempts=3,
+                    max_attempts=2,
                     timeout=timeout,
                     disconnected_callback=self._handle_disconnect,
                 )
