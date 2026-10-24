@@ -1,0 +1,58 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Einhell mower",
+        "description": "Pick a discovered mower or enter its Bluetooth address.",
+        "data": {
+          "address": "Bluetooth address",
+          "update_interval": "Polling interval (seconds)"
+        }
+      },
+      "confirm": {
+        "title": "Add mower",
+        "description": "Add the mower at {address}?",
+        "data": {
+          "manual_uuids": "Enter GATT UUIDs manually"
+        }
+      },
+      "uuids": {
+        "title": "GATT characteristics",
+        "description": "Only needed if automatic detection fails.",
+        "data": {
+          "uuid_notify": "Notify characteristic UUID",
+          "uuid_write": "Write characteristic UUID"
+        }
+      }
+    },
+    "error": {
+      "no_devices": "No mower found - enter the address manually."
+    },
+    "abort": {
+      "already_configured": "This mower is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einhell mower options",
+        "data": {
+          "update_interval": "Polling interval (seconds)",
+          "uuid_notify": "Notify characteristic UUID",
+          "uuid_write": "Write characteristic UUID"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_command": {
+      "name": "Send raw command",
+      "description": "Send an arbitrary command frame to the mower."
+    },
+    "sync_time": {
+      "name": "Sync clock",
+      "description": "Write the current Home Assistant time into the mower RTC."
+    }
+  }
+}

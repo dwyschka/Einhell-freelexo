@@ -1,0 +1,58 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Einhell Rasenmähroboter",
+        "description": "Gefundenen Mäher auswählen oder Bluetooth-Adresse eingeben.",
+        "data": {
+          "address": "Bluetooth-Adresse",
+          "update_interval": "Abfrageintervall (Sekunden)"
+        }
+      },
+      "confirm": {
+        "title": "Mäher hinzufügen",
+        "description": "Mäher unter {address} hinzufügen?",
+        "data": {
+          "manual_uuids": "GATT-UUIDs manuell eingeben"
+        }
+      },
+      "uuids": {
+        "title": "GATT-Charakteristiken",
+        "description": "Nur nötig, wenn die automatische Erkennung fehlschlägt.",
+        "data": {
+          "uuid_notify": "Notify-Charakteristik (UUID)",
+          "uuid_write": "Write-Charakteristik (UUID)"
+        }
+      }
+    },
+    "error": {
+      "no_devices": "Kein Mäher gefunden - Adresse manuell eingeben."
+    },
+    "abort": {
+      "already_configured": "Dieser Mäher ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einhell Mäher - Optionen",
+        "data": {
+          "update_interval": "Abfrageintervall (Sekunden)",
+          "uuid_notify": "Notify-Charakteristik (UUID)",
+          "uuid_write": "Write-Charakteristik (UUID)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_command": {
+      "name": "Rohbefehl senden",
+      "description": "Beliebiges Kommando-Frame an den Mäher senden."
+    },
+    "sync_time": {
+      "name": "Uhr synchronisieren",
+      "description": "Aktuelle Home-Assistant-Zeit in die RTC des Mähers schreiben."
+    }
+  }
+}

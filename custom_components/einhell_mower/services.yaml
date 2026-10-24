@@ -1,0 +1,40 @@
+send_command:
+  name: Send raw command
+  description: >-
+    Send an arbitrary command frame to the mower. Useful for firmware
+    functions that have no dedicated entity yet.
+  fields:
+    command:
+      name: Command
+      description: Command byte (see the table in the README).
+      required: true
+      example: 97
+      selector:
+        number:
+          min: 0
+          max: 255
+    payload:
+      name: Payload
+      description: Hex string, up to 14 bytes, e.g. "04" or "14 0A".
+      required: false
+      example: "04"
+      selector:
+        text:
+    device_id:
+      name: Mower
+      description: Only needed when several mowers are configured.
+      required: false
+      selector:
+        device:
+          integration: einhell_mower
+
+sync_time:
+  name: Sync clock
+  description: Write the current Home Assistant time into the mower RTC.
+  fields:
+    device_id:
+      name: Mower
+      required: false
+      selector:
+        device:
+          integration: einhell_mower
