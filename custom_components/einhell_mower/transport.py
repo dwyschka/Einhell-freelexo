@@ -1,9 +1,11 @@
 """BLE transport for the Einhell mower.
 
-The mower does not use a well known serial-over-BLE profile, so the relevant
-characteristics are auto-detected: the first service that exposes both a
-notify/indicate characteristic and a write characteristic is used. Discovered
-UUIDs are cached in the config entry so later connections are instant.
+The app does not hardcode any GATT UUID, so the notify/write pair is detected
+at runtime. Two details matter for reliability:
+
+* a 24 byte frame does not fit into a single ATT packet at the default
+  MTU 23, so a *write with response* (long write) is preferred;
+* some modules need a short settle time after subscribing.
 """
 
 from __future__ import annotations
@@ -28,6 +30,16 @@ _LOGGER = logging.getLogger(__name__)
 NOTIFY_PROPS = {"notify", "indicate"}
 WRITE_PROPS = {"write", "write-without-response"}
 
+#: well known transparent-UART services, tried first
+PREFERRED_SERVICES = (
+    "6e400001-b5a3-f393-e0a9-e50e24dcca9e",  # Nordic UART
+    "0000ffe0-0000-1000-8000-00805f9b34fb",  # common Chinese module
+    "0000ff00-0000-1000-8000-00805f9b34fb",
+    "0000fff0-0000-1000-8000-00805f9b34fb",
+)
+
+SETTLE_SECONDS = 0.4
+
 
 class MowerConnectionError(Exception):
     """Raised when the mower cannot be reached."""
@@ -48,6 +60,7 @@ class MowerBLE:
         self.address = address
         self.uuid_notify = uuid_notify
         self.uuid_write = uuid_write
+        self.write_with_response = True
 
         self._client: BleakClientWithServiceCache | None = None
         self._parser = FrameParser()
@@ -56,6 +69,7 @@ class MowerBLE:
         self._pending: list[Frame] = []
         self._on_disconnect: Callable[[], None] | None = None
         self._rssi: int | None = None
+        self.mtu: int | None = None
 
     # -- properties ---------------------------------------------------------
     @property
@@ -71,7 +85,6 @@ class MowerBLE:
 
     # -- connection ---------------------------------------------------------
     async def connect(self, timeout: float = 30.0) -> None:
-        """Establish the BLE connection and subscribe to notifications."""
         async with self._lock:
             if self.connected:
                 return
@@ -101,8 +114,12 @@ class MowerBLE:
             self._pending.clear()
             self._frame_event.clear()
 
+            self._log_services()
+
             try:
-                notify_uuid, write_uuid = await self._resolve_characteristics()
+                notify_uuid, write_uuid, response = (
+                    await self._resolve_characteristics()
+                )
                 await client.start_notify(notify_uuid, self._handle_notify)
             except Exception as err:  # noqa: BLE001
                 await self._safe_disconnect()
@@ -112,27 +129,57 @@ class MowerBLE:
 
             self.uuid_notify = notify_uuid
             self.uuid_write = write_uuid
+            self.write_with_response = response
+            self.mtu = getattr(client, "mtu_size", None)
+
             _LOGGER.debug(
-                "connected to %s (notify=%s write=%s)",
+                "connected to %s (notify=%s write=%s response=%s mtu=%s)",
                 self.address,
                 notify_uuid,
                 write_uuid,
+                response,
+                self.mtu,
             )
+            if self.mtu is not None and self.mtu < 27:
+                _LOGGER.warning(
+                    "MTU is %s - a 24 byte frame needs a long write; "
+                    "if the mower does not answer, use a Bluetooth proxy "
+                    "that negotiates a larger MTU",
+                    self.mtu,
+                )
 
-    async def _resolve_characteristics(self) -> tuple[str, str]:
-        """Find the notify and write characteristics.
+            # give the module a moment before the first frame
+            await asyncio.sleep(SETTLE_SECONDS)
 
-        Preference order:
-        1. explicitly configured UUIDs
-        2. a single service that offers both
-        3. first notify characteristic and first write characteristic
-        """
+    def _log_services(self) -> None:
+        """Log the GATT tree so a failing setup can be diagnosed."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG) or self._client is None:
+            return
+        for service in self._client.services:
+            _LOGGER.debug("service %s", service.uuid)
+            for char in service.characteristics:
+                _LOGGER.debug(
+                    "  characteristic %s %s",
+                    char.uuid,
+                    ",".join(char.properties),
+                )
+
+    async def _resolve_characteristics(
+        self,
+    ) -> tuple[str, str, bool]:
+        """Return (notify uuid, write uuid, write with response)."""
         assert self._client is not None
 
         if self.uuid_notify and self.uuid_write:
-            return self.uuid_notify, self.uuid_write
+            return self.uuid_notify, self.uuid_write, True
 
-        services = self._client.services
+        services = list(self._client.services)
+        # try well known UART profiles first
+        services.sort(
+            key=lambda svc: 0
+            if str(svc.uuid).lower() in PREFERRED_SERVICES
+            else 1
+        )
         notify_only: list[BleakGATTCharacteristic] = []
         write_only: list[BleakGATTCharacteristic] = []
 
@@ -148,19 +195,26 @@ class MowerBLE:
                 if WRITE_PROPS & set(c.properties)
             ]
             if notifies and writes:
-                return notifies[0].uuid, writes[0].uuid
+                return (
+                    notifies[0].uuid,
+                    writes[0].uuid,
+                    "write" in writes[0].properties,
+                )
             notify_only.extend(notifies)
             write_only.extend(writes)
 
         if notify_only and write_only:
-            return notify_only[0].uuid, write_only[0].uuid
+            return (
+                notify_only[0].uuid,
+                write_only[0].uuid,
+                "write" in write_only[0].properties,
+            )
 
         raise MowerConnectionError(
             "no serial-like characteristic pair found; set the UUIDs manually"
         )
 
     async def disconnect(self) -> None:
-        """Tear the link down."""
         async with self._lock:
             await self._safe_disconnect()
 
@@ -184,33 +238,48 @@ class MowerBLE:
     def _handle_notify(
         self, _char: BleakGATTCharacteristic, data: bytearray
     ) -> None:
-        """Notification callback (runs on the bleak thread/loop)."""
         _LOGGER.debug("notify <- %s", bytes(data).hex(" "))
         for frame in self._parser.feed(bytes(data)):
             self._pending.append(frame)
             self._frame_event.set()
 
     async def send(self, frame: bytes) -> None:
-        """Write one command frame."""
+        """Write one command frame, trying both write modes if needed."""
         client = self._client
         if client is None or not client.is_connected:
             raise MowerConnectionError("not connected")
         if not self.uuid_write:
             raise MowerConnectionError("write characteristic not resolved")
 
-        _LOGGER.debug("notify -> %s", frame.hex(" "))
+        _LOGGER.debug(
+            "notify -> %s (response=%s)",
+            frame.hex(" "),
+            self.write_with_response,
+        )
         try:
             await client.write_gatt_char(
-                self.uuid_write, frame, response=False
+                self.uuid_write,
+                frame,
+                response=self.write_with_response,
             )
         except Exception as err:  # noqa: BLE001
-            raise MowerConnectionError(f"write failed: {err}") from err
+            _LOGGER.debug("write failed, retrying with other mode: %s", err)
+            try:
+                self.write_with_response = not self.write_with_response
+                await client.write_gatt_char(
+                    self.uuid_write,
+                    frame,
+                    response=self.write_with_response,
+                )
+            except Exception as err2:  # noqa: BLE001
+                raise MowerConnectionError(
+                    f"write failed: {err2}"
+                ) from err2
 
     async def request(
         self, frame: bytes, expect: int, timeout: float
     ) -> Frame:
         """Send a frame and wait for the response with the given code."""
-        # drop stale frames so we never return an old answer
         self._pending.clear()
         self._frame_event.clear()
 
@@ -237,7 +306,6 @@ class MowerBLE:
                 continue
 
     async def update_rssi(self) -> None:
-        """Refresh the cached RSSI value from the Bluetooth manager."""
         device = bluetooth.async_ble_device_from_address(
             self.hass, self.address, connectable=True
         )

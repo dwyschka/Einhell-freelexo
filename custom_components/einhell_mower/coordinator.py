@@ -97,12 +97,24 @@ class EinhellMowerCoordinator(DataUpdateCoordinator[dict]):
         return data
 
     async def _query(self, cmd: int, payload: bytes = b"") -> Frame:
+        """Send one query.
+
+        A sleeping mower sometimes ignores the very first frame after the
+        link is up, so a timeout is retried once.
+        """
         expect = RESPONSE_MAP.get(cmd)
         if expect is None:
             raise ProtocolError(f"no response mapping for 0x{cmd:02X}")
-        return await self.connection.request(
-            build_frame(cmd, payload), expect, DEFAULT_TIMEOUT
-        )
+        frame = build_frame(cmd, payload)
+        try:
+            return await self.connection.request(
+                frame, expect, DEFAULT_TIMEOUT
+            )
+        except TimeoutError:
+            _LOGGER.debug("query 0x%02X timed out, retrying once", cmd)
+            return await self.connection.request(
+                frame, expect, DEFAULT_TIMEOUT
+            )
 
     # -- commands -----------------------------------------------------------
     async def async_send_raw(

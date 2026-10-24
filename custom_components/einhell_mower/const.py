@@ -28,7 +28,7 @@ RSP_FRAME_LEN = 22
 CMD_PAYLOAD_LEN = 15  # includes the command byte
 MAX_DATA = CMD_PAYLOAD_LEN - 1
 
-DEFAULT_TIMEOUT = 2.0
+DEFAULT_TIMEOUT = 3.0
 
 
 class Cmd(IntEnum):
