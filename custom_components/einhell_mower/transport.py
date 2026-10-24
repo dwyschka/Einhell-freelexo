@@ -141,11 +141,11 @@ class MowerBLE:
                 self.mtu,
             )
             if self.mtu is not None and self.mtu < 27:
-                _LOGGER.warning(
-                    "MTU is %s - a 24 byte frame needs a long write; "
-                    "if the mower does not answer, use a Bluetooth proxy "
-                    "that negotiates a larger MTU",
+                _LOGGER.debug(
+                    "MTU is %s - the 24 byte frame will be sent in %d "
+                    "chunks",
                     self.mtu,
+                    -(-24 // max(1, self.mtu - 3)),
                 )
 
             # give the module a moment before the first frame
@@ -251,26 +251,42 @@ class MowerBLE:
         if not self.uuid_write:
             raise MowerConnectionError("write characteristic not resolved")
 
+        mtu = self.mtu or getattr(client, "mtu_size", None)
+        # A 24 byte frame does not fit one ATT packet at MTU 23. Transparent
+        # UART modules forward every written chunk, so splitting is safe and
+        # is what makes the frame work on small MTUs.
+        chunk = (mtu - 3) if mtu and mtu > 3 else len(frame)
+        chunks = [
+            frame[i : i + chunk] for i in range(0, len(frame), chunk)
+        ]
+
         _LOGGER.debug(
-            "notify -> %s (response=%s)",
+            "notify -> %s (response=%s mtu=%s chunks=%d)",
             frame.hex(" "),
             self.write_with_response,
+            mtu,
+            len(chunks),
         )
         try:
-            await client.write_gatt_char(
-                self.uuid_write,
-                frame,
-                response=self.write_with_response,
-            )
+            for part in chunks:
+                await client.write_gatt_char(
+                    self.uuid_write,
+                    part,
+                    response=self.write_with_response,
+                )
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("write failed, retrying with other mode: %s", err)
             try:
                 self.write_with_response = not self.write_with_response
-                await client.write_gatt_char(
-                    self.uuid_write,
-                    frame,
-                    response=self.write_with_response,
+                _LOGGER.debug(
+                    "retrying write with response=%s", self.write_with_response
                 )
+                for part in chunks:
+                    await client.write_gatt_char(
+                        self.uuid_write,
+                        part,
+                        response=self.write_with_response,
+                    )
             except Exception as err2:  # noqa: BLE001
                 raise MowerConnectionError(
                     f"write failed: {err2}"
