@@ -1,29 +1,32 @@
-# Freelexo mower - step 2: send commands from ESPHome
+# Freelexo mower - send commands from ESPHome
 #
-# Fill in the two UUIDs from the discovery log, then flash.
+# GATT profile discovered on 2026-10-25:
+#   service 49535343-FE7D-4AE5-8FA9-9FAFD205E455   (Microchip/ISSC transparent UART)
+#   MTU 247
+#
+# The mower speaks a plain transparent serial link, so the frames below go
+# through verbatim.
 #
 # What this can do: every command is fire-and-forget from the app's point of
 # view (its ControlMessage is literally named that), so start, pause, dock,
 # edge cutting and clock sync work over plain ble_write.
 #
 # What it cannot do: read the answers. ESPHome does not expose notification
-# subscriptions to YAML - that needs a small custom component. So the mower
-# obeys, but battery/state are not visible here.
+# subscriptions to YAML - that needs a small custom component. Battery and
+# state stay in the Home Assistant integration.
 #
-# NOTE: while this ESP is connected, the Home Assistant Bluetooth proxy cannot
-# reach the mower. Use either this file or the HA integration, not both.
-#
-# Only one BLE connection is possible - close the Einhell app.
+# NOTE: the mower accepts only one BLE connection. While this ESP is connected
+# the HA proxy cannot reach it. Use either this file or the HA integration.
 
 substitutions:
   name: freelexo
   friendly_name: Freelexo Mower
   mower_mac: "45:49:4E:00:40:BC"
-  # Microchip/ISSC transparent UART, found in the discovery log
+
   mower_service: "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-  # Transparent RX (write)
+  # Transparent RX - the mower reads from this one
   mower_characteristic: "49535343-ACA3-481C-91EC-D85E28A60318"
-  # Transparent TX (notify) - only needed for a custom component
+  # Transparent TX - notifications, only needed by a custom component
   mower_notify: "49535343-8841-43F4-A8D4-ECBE34729BB3"
 
 esphome:
@@ -31,11 +34,17 @@ esphome:
   friendly_name: ${friendly_name}
 
 esp32:
+  # your board reported itself as ESP32-S3 rev0.1 - keep whatever your working
+  # config uses if it differs
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
 
 logger:
+  level: DEBUG
+  logs:
+    mower: DEBUG
+    ble_client: DEBUG
 
 api:
   encryption:
@@ -60,6 +69,16 @@ ble_client:
   - mac_address: ${mower_mac}
     id: mower
     auto_connect: true
+    on_connect:
+      then:
+        - logger.log:
+            format: "MOWER CONNECTED"
+            level: WARN
+    on_disconnect:
+      then:
+        - logger.log:
+            format: "MOWER DISCONNECTED - commands will not be sent"
+            level: WARN
 
 globals:
   - id: tx_buffer
@@ -67,11 +86,12 @@ globals:
     restore_value: no
 
 # ---------------------------------------------------------------------------
-# Frame layout (verified against the official app and the mower firmware)
+# Frame layout, verified against the official app and the mower firmware:
 #
 #   "DYM" | cmd + data, padded to 15 bytes | 00 16 06 01 FF 0A   = 24 bytes
 #
-# p1..p6 are the data bytes; -1 means "unused".
+# p1..p6 are the data bytes, -1 means "unused". Because -1 is the sentinel a
+# data byte can never be 0xFF; no current command needs that.
 # ---------------------------------------------------------------------------
 script:
   - id: send_frame
@@ -86,18 +106,25 @@ script:
       p6: int
     then:
       - lambda: |-
-          std::vector<uint8_t> f = {0x44, 0x59, 0x4D, (uint8_t) cmd};
+          std::vector<uint8_t> f;
+          f.push_back(0x44);                  // 'D'
+          f.push_back(0x59);                  // 'Y'
+          f.push_back(0x4D);                  // 'M'
+          f.push_back((uint8_t) cmd);
+
           const int vals[6] = {p1, p2, p3, p4, p5, p6};
           for (int v : vals) {
             if (v >= 0) f.push_back((uint8_t) v);
           }
-          f.resize(3 + 15, 0x00);            // pad the payload
-          const uint8_t end[6] = {0x00, 0x16, 0x06, 0x01, 0xFF, 0x0A};
-          f.insert(f.end(), end, end + 6);
+          f.resize(3 + 15, 0x00);             // pad the payload
+
+          const uint8_t tail[6] = {0x00, 0x16, 0x06, 0x01, 0xFF, 0x0A};
+          f.insert(f.end(), tail, tail + 6);  // 24 bytes total
+
           id(tx_buffer) = f;
 
           std::string hex;
-          char b[4];
+          char b[5];
           for (auto c : f) {
             snprintf(b, sizeof(b), "%02X ", c);
             hex += b;
@@ -109,6 +136,7 @@ script:
           service_uuid: ${mower_service}
           characteristic_uuid: ${mower_characteristic}
           value: !lambda return id(tx_buffer);
+      - lambda: ESP_LOGD("mower", "frame handed to the BLE stack");
 
 text_sensor:
   - platform: template
@@ -121,6 +149,8 @@ time:
     id: homeassistant_time
 
 button:
+  # BasicControlRequest: [0x01][action]
+  #   1 pause, 2 go to work, 3 go to station, 4 edge, 5 second area
   - platform: template
     name: "Go to work"
     icon: mdi:play
@@ -191,7 +221,7 @@ button:
           p5: -1
           p6: -1
 
-  # SystemTimeSet: year/100, year%100, month, day, hour, minute
+  # SystemTimeSet (0x02): year/100, year%100, month, day, hour, minute
   - platform: template
     name: "Sync clock"
     icon: mdi:clock-check
@@ -199,7 +229,7 @@ button:
       - lambda: |-
           auto t = id(homeassistant_time).now();
           if (!t.is_valid()) {
-            ESP_LOGW("mower", "no valid time yet");
+            ESP_LOGW("mower", "no valid time from Home Assistant yet");
             return;
           }
           id(send_frame).execute(
@@ -212,9 +242,9 @@ button:
     name: "Restart"
     icon: mdi:restart
 
-
 interval:
-  # once a day; the mower has no reliable RTC backup supply
+  # once a day - the mower has no reliable RTC backup supply and boots at
+  # 2020-05-16 17:42:55 after every power loss
   - interval: 24h
     then:
       - lambda: |-
