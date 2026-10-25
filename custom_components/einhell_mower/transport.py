@@ -32,10 +32,20 @@ WRITE_PROPS = {"write", "write-without-response"}
 
 #: well known transparent-UART services, tried first
 PREFERRED_SERVICES = (
+    # Microchip/ISSC transparent UART - used by the Freelexo mower
+    "49535343-fe7d-4ae5-8fa9-9fafd205e455",
     "6e400001-b5a3-f393-e0a9-e50e24dcca9e",  # Nordic UART
     "0000ffe0-0000-1000-8000-00805f9b34fb",  # common Chinese module
     "0000ff00-0000-1000-8000-00805f9b34fb",
     "0000fff0-0000-1000-8000-00805f9b34fb",
+)
+
+#: standard GATT services expose notify/write too and must never be picked
+IGNORED_SERVICES = (
+    "00001800-0000-1000-8000-00805f9b34fb",  # Generic Access
+    "00001801-0000-1000-8000-00805f9b34fb",  # Generic Attribute
+    "0000180a-0000-1000-8000-00805f9b34fb",  # Device Information
+    "0000180f-0000-1000-8000-00805f9b34fb",  # Battery Service
 )
 
 SETTLE_SECONDS = 0.4
@@ -219,6 +229,8 @@ class MowerBLE:
         write_only: list[BleakGATTCharacteristic] = []
 
         for service in services:
+            if str(service.uuid).lower() in IGNORED_SERVICES:
+                continue
             notifies = [
                 c
                 for c in service.characteristics

@@ -19,16 +19,19 @@ substitutions:
   name: freelexo
   friendly_name: Freelexo Mower
   mower_mac: "45:49:4E:00:40:BC"
-  # from the discovery log:
-  mower_service: "0000FFE0-0000-1000-8000-00805F9B34FB"
-  mower_characteristic: "0000FFE1-0000-1000-8000-00805F9B34FB"
+  # Microchip/ISSC transparent UART, found in the discovery log
+  mower_service: "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
+  # Transparent RX (write)
+  mower_characteristic: "49535343-ACA3-481C-91EC-D85E28A60318"
+  # Transparent TX (notify) - only needed for a custom component
+  mower_notify: "49535343-8841-43F4-A8D4-ECBE34729BB3"
 
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
 
 esp32:
-  board: esp32dev
+  board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
 
