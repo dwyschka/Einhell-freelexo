@@ -1,20 +1,21 @@
 # Freelexo mower - step 1: discover the GATT profile
 #
-# Flash this, open the ESPHome log and let it connect to the mower. The
-# ble_client component prints every service and characteristic it finds:
+# auto_connect is off on purpose: attach the log first, then press "Connect".
+# That way the whole connection handshake and the GATT discovery happen while
+# you are watching, instead of seconds before the log client attaches.
 #
-#   [ble_client:143]: Service UUID: 0xFFE0
-#   [ble_client:144]:   start_handle: 0x23  end_handle: 0x26
-#   [ble_client:305]:  characteristic 0xFFE1, handle 0x25, properties 0x10
+# The ble_client component prints every service and characteristic it finds:
 #
-# Send that block back and we know which characteristic to write to.
+#   [I][ble_client:143]: Service UUID: 0xFFE0
+#   [I][ble_client:144]:   start_handle: 0x23  end_handle: 0x26
+#   [I][ble_client:305]:  characteristic 0xFFE1, handle 0x25, properties 0x10
 #
 # IMPORTANT: only one BLE connection is possible. Close the Einhell app and
 # stop the Home Assistant integration while this runs.
 
 substitutions:
-  name: freelexo-discover
-  friendly_name: Freelexo Discover
+  name: mower-proxy
+  friendly_name: Mower Proxy
   mower_mac: "45:49:4E:00:40:BC"   # <- your mower
 
 esphome:
@@ -22,14 +23,15 @@ esphome:
   friendly_name: ${friendly_name}
 
 esp32:
-  board: esp32dev
+  board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
 
 logger:
-  level: DEBUG
+  level: VERBOSE
   logs:
-    ble_client: DEBUG
+    ble_client: VERY_VERBOSE
+    esp32_ble_client: VERY_VERBOSE
     esp32_ble_tracker: INFO
 
 api:
@@ -49,25 +51,40 @@ captive_portal:
 
 esp32_ble_tracker:
   scan_parameters:
+    # not continuous, so a manual connect does not have to stop the scanner
+    continuous: false
     # the mower is a battery device, do not hammer it
     active: false
 
 ble_client:
   - mac_address: ${mower_mac}
     id: mower
-    auto_connect: true
+    auto_connect: false
     on_connect:
       then:
         - logger.log:
-            format: "Mower connected - GATT tree follows"
+            format: "MOWER CONNECTED - GATT tree follows below"
             level: WARN
     on_disconnect:
       then:
         - logger.log:
-            format: "Mower disconnected"
+            format: "MOWER DISCONNECTED"
             level: WARN
 
 button:
+  - platform: template
+    name: "Connect"
+    icon: mdi:bluetooth-connect
+    on_press:
+      - lambda: ESP_LOGW("mower", "connecting to ${mower_mac} ...");
+      - ble_client.connect: mower
+
+  - platform: template
+    name: "Disconnect"
+    icon: mdi:bluetooth-off
+    on_press:
+      - ble_client.disconnect: mower
+
   - platform: restart
     name: "Restart"
     icon: mdi:restart
