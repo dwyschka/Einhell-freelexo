@@ -1,0 +1,68 @@
+# Freelexo mower - step 1: discover the GATT profile
+#
+# Flash this, open the ESPHome log and let it connect to the mower. The
+# ble_client component prints every service and characteristic it finds:
+#
+#   [ble_client:143]: Service UUID: 0xFFE0
+#   [ble_client:144]:   start_handle: 0x23  end_handle: 0x26
+#   [ble_client:305]:  characteristic 0xFFE1, handle 0x25, properties 0x10
+#
+# Send that block back and we know which characteristic to write to.
+#
+# IMPORTANT: only one BLE connection is possible. Close the Einhell app and
+# stop the Home Assistant integration while this runs.
+
+substitutions:
+  name: freelexo-discover
+  friendly_name: Freelexo Discover
+  mower_mac: "45:49:4E:00:40:BC"   # <- your mower
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  logs:
+    ble_client: DEBUG
+    esp32_ble_tracker: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${name} fallback"
+
+captive_portal:
+
+esp32_ble_tracker:
+  scan_parameters:
+    # the mower is a battery device, do not hammer it
+    active: false
+
+ble_client:
+  - mac_address: ${mower_mac}
+    id: mower
+    auto_connect: true
+    on_connect:
+      then:
+        - logger.log:
+            format: "Mower connected - GATT tree follows"
+            level: WARN
+    on_disconnect:
+      then:
+        - logger.log:
+            format: "Mower disconnected"
+            level: WARN

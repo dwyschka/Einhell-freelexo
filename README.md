@@ -165,6 +165,27 @@ Optional `device_id` when several mowers are configured.
 
 ---
 
+## ESPHome instead of the integration
+
+If your Bluetooth proxies are short on connection slots, a dedicated ESP32
+next to the mower fixes that. Two ready-made configurations live in
+[`esphome/`](esphome/):
+
+| File | Purpose |
+|---|---|
+| `freelexo-discover.yaml` | connects once and prints the full GATT tree to the log |
+| `freelexo.yaml` | sends the control frames (start, pause, dock, edge, clock) |
+
+Run the discovery file first — it tells you the service and characteristic
+UUID. The mower does not hardcode them anywhere, not even in the official app,
+so discovery is the only way.
+
+**Limits of the YAML-only route:** ESPHome does not expose notification
+subscriptions to YAML, so the ESP can *send* but not *read*. Battery, state and
+the rest stay in the Home Assistant integration. And because the mower accepts
+only one BLE connection, you run either the ESP or the HA proxy — not both at
+the same time.
+
 ## Development
 
 ```bash

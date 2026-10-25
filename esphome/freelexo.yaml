@@ -1,0 +1,219 @@
+# Freelexo mower - step 2: send commands from ESPHome
+#
+# Fill in the two UUIDs from the discovery log, then flash.
+#
+# What this can do: every command is fire-and-forget from the app's point of
+# view (its ControlMessage is literally named that), so start, pause, dock,
+# edge cutting and clock sync work over plain ble_write.
+#
+# What it cannot do: read the answers. ESPHome does not expose notification
+# subscriptions to YAML - that needs a small custom component. So the mower
+# obeys, but battery/state are not visible here.
+#
+# NOTE: while this ESP is connected, the Home Assistant Bluetooth proxy cannot
+# reach the mower. Use either this file or the HA integration, not both.
+#
+# Only one BLE connection is possible - close the Einhell app.
+
+substitutions:
+  name: freelexo
+  friendly_name: Freelexo Mower
+  mower_mac: "45:49:4E:00:40:BC"
+  # from the discovery log:
+  mower_service: "0000FFE0-0000-1000-8000-00805F9B34FB"
+  mower_characteristic: "0000FFE1-0000-1000-8000-00805F9B34FB"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${name} fallback"
+
+captive_portal:
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+ble_client:
+  - mac_address: ${mower_mac}
+    id: mower
+    auto_connect: true
+
+globals:
+  - id: tx_buffer
+    type: std::vector<uint8_t>
+    restore_value: no
+
+# ---------------------------------------------------------------------------
+# Frame layout (verified against the official app and the mower firmware)
+#
+#   "DYM" | cmd + data, padded to 15 bytes | 00 16 06 01 FF 0A   = 24 bytes
+#
+# p1..p6 are the data bytes; -1 means "unused".
+# ---------------------------------------------------------------------------
+script:
+  - id: send_frame
+    mode: queued
+    parameters:
+      cmd: int
+      p1: int
+      p2: int
+      p3: int
+      p4: int
+      p5: int
+      p6: int
+    then:
+      - lambda: |-
+          std::vector<uint8_t> f = {0x44, 0x59, 0x4D, (uint8_t) cmd};
+          const int vals[6] = {p1, p2, p3, p4, p5, p6};
+          for (int v : vals) {
+            if (v >= 0) f.push_back((uint8_t) v);
+          }
+          f.resize(3 + 15, 0x00);            // pad the payload
+          const uint8_t end[6] = {0x00, 0x16, 0x06, 0x01, 0xFF, 0x0A};
+          f.insert(f.end(), end, end + 6);
+          id(tx_buffer) = f;
+
+          std::string hex;
+          char b[4];
+          for (auto c : f) {
+            snprintf(b, sizeof(b), "%02X ", c);
+            hex += b;
+          }
+          id(last_frame).publish_state(hex);
+          ESP_LOGD("mower", "TX %s", hex.c_str());
+      - ble_client.ble_write:
+          id: mower
+          service_uuid: ${mower_service}
+          characteristic_uuid: ${mower_characteristic}
+          value: !lambda return id(tx_buffer);
+
+text_sensor:
+  - platform: template
+    name: "Last frame sent"
+    id: last_frame
+    icon: mdi:code-json
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+button:
+  - platform: template
+    name: "Go to work"
+    icon: mdi:play
+    on_press:
+      - script.execute:
+          id: send_frame
+          cmd: 0x01
+          p1: 0x02
+          p2: -1
+          p3: -1
+          p4: -1
+          p5: -1
+          p6: -1
+
+  - platform: template
+    name: "Pause"
+    icon: mdi:pause
+    on_press:
+      - script.execute:
+          id: send_frame
+          cmd: 0x01
+          p1: 0x01
+          p2: -1
+          p3: -1
+          p4: -1
+          p5: -1
+          p6: -1
+
+  - platform: template
+    name: "Go to station"
+    icon: mdi:home-battery
+    on_press:
+      - script.execute:
+          id: send_frame
+          cmd: 0x01
+          p1: 0x03
+          p2: -1
+          p3: -1
+          p4: -1
+          p5: -1
+          p6: -1
+
+  - platform: template
+    name: "Edge cutting"
+    icon: mdi:grass
+    on_press:
+      - script.execute:
+          id: send_frame
+          cmd: 0x01
+          p1: 0x04
+          p2: -1
+          p3: -1
+          p4: -1
+          p5: -1
+          p6: -1
+
+  - platform: template
+    name: "Second area mowing"
+    icon: mdi:vector-square
+    on_press:
+      - script.execute:
+          id: send_frame
+          cmd: 0x01
+          p1: 0x05
+          p2: -1
+          p3: -1
+          p4: -1
+          p5: -1
+          p6: -1
+
+  # SystemTimeSet: year/100, year%100, month, day, hour, minute
+  - platform: template
+    name: "Sync clock"
+    icon: mdi:clock-check
+    on_press:
+      - lambda: |-
+          auto t = id(homeassistant_time).now();
+          if (!t.is_valid()) {
+            ESP_LOGW("mower", "no valid time yet");
+            return;
+          }
+          id(send_frame).execute(
+            0x02,
+            (int) (t.year / 100), (int) (t.year % 100),
+            (int) t.month, (int) t.day_of_month,
+            (int) t.hour, (int) t.minute);
+
+interval:
+  # once a day; the mower has no reliable RTC backup supply
+  - interval: 24h
+    then:
+      - lambda: |-
+          auto t = id(homeassistant_time).now();
+          if (!t.is_valid()) return;
+          id(send_frame).execute(
+            0x02,
+            (int) (t.year / 100), (int) (t.year % 100),
+            (int) t.month, (int) t.day_of_month,
+            (int) t.hour, (int) t.minute);
