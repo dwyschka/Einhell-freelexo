@@ -66,3 +66,8 @@ ble_client:
         - logger.log:
             format: "Mower disconnected"
             level: WARN
+
+button:
+  - platform: restart
+    name: "Restart"
+    icon: mdi:restart

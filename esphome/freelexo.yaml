@@ -205,6 +205,11 @@ button:
             (int) t.month, (int) t.day_of_month,
             (int) t.hour, (int) t.minute);
 
+  - platform: restart
+    name: "Restart"
+    icon: mdi:restart
+
+
 interval:
   # once a day; the mower has no reliable RTC backup supply
   - interval: 24h
