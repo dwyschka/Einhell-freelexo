@@ -168,9 +168,16 @@ Three big-endian uint32 **seconds** at indices 1, 5, 9:
 2. machine run time
 3. blade run time
 
-### `0x1E` Error log (response `0x8E`)
+### `0x1E` Error memory (response `0x8E`)
 
-Eight warning codes; `0` means empty slot.
+**One** timestamped record, not eight codes:
+
+```
+year_hi, year_lo, month, day, hour, minute, second, code
+```
+
+The firmware formats it as `YYYYMMDD-HH-MM-SS` (0x0802eb48). See
+[error-codes.md](error-codes.md) for the full code table.
 
 ### `0x8D` Zones (response)
 

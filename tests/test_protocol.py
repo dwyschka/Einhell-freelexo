@@ -103,11 +103,22 @@ d = protocol.decode(stats)
 check("boot hours", d["boot_hours"], 1.0)
 check("runtime hours", d["runtime_hours"], 2.0)
 
-print("error log (warning codes)")
-log = protocol.Frame(code=0x8E, payload=bytes([0x8E, 66, 84, 0, 0, 0, 0, 0, 0]))
+print("error memory (timestamped entry)")
+# 8 byte record: year hi/lo, month, day, hour, minute, second, code
+log = protocol.Frame(
+    code=0x8E,
+    payload=bytes([0x8E, 0x07, 0xEA, 10, 25, 12, 34, 56, 84]),
+)
 d = protocol.decode(log)
 check("has error", d["has_error"], True)
-check("names", d["error_names"], ["battery_error", "mower_tilted"])
+check("code", d["error_code"], 84)
+check("name", d["error_name"], "mower_tilted")
+check("timestamp", d["error_timestamp"], "2026-10-25 12:34:56")
+
+empty = protocol.Frame(code=0x8E, payload=bytes(9))
+d = protocol.decode(empty)
+check("empty memory", d["has_error"], False)
+check("empty name", d["error_name"], "none")
 
 print("feature flags (8 bytes big endian)")
 flags = protocol.Frame(

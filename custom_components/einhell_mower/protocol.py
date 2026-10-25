@@ -225,13 +225,37 @@ def decode_statistics(frame: Frame) -> dict[str, Any]:
 
 
 def decode_error_log(frame: Frame) -> dict[str, Any]:
-    """Error log: 8 warning codes, 0 means an empty slot."""
-    entries = list(frame.payload[1:9])
-    active = [c for c in entries if c]
+    """Error memory: ONE timestamped entry, not eight codes.
+
+    The firmware stores an 8 byte record and formats it as
+    ``YYYYMMDD-HH-MM-SS`` followed by the error text:
+
+    ======  =========================================
+    byte 1  year, high
+    byte 2  year, low
+    byte 3  month
+    byte 4  day
+    byte 5  hour
+    byte 6  minute
+    byte 7  second
+    byte 8  warning code
+    ======  =========================================
+    """
+    r = frame.payload[1:9]
+    year = (r[0] << 8) | r[1]
+    code = r[7]
+    timestamp = None
+    if year >= 2000 and 1 <= r[2] <= 12 and 1 <= r[3] <= 31:
+        timestamp = (
+            f"{year:04d}-{r[2]:02d}-{r[3]:02d} "
+            f"{r[4]:02d}:{r[5]:02d}:{r[6]:02d}"
+        )
     return {
-        "errors": entries,
-        "error_names": [_warning_name(c) for c in active],
-        "has_error": bool(active),
+        "error_code": code,
+        "error_name": _warning_name(code) if code else "none",
+        "error_timestamp": timestamp,
+        "errors_raw": list(r),
+        "has_error": code != 0,
     }
 
 

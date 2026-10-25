@@ -80,12 +80,13 @@ SENSORS: tuple[MowerSensorDescription, ...] = (
     ),
     MowerSensorDescription(
         key="error_log",
-        name="Error memory",
+        name="Last error",
         icon="mdi:alert-circle-outline",
-        value_fn=lambda d: len(d.get("error_names", [])),
+        value_fn=lambda d: d.get("error_name"),
         attrs_fn=lambda d: {
-            "codes": d.get("errors"),
-            "names": d.get("error_names"),
+            "code": d.get("error_code"),
+            "timestamp": d.get("error_timestamp"),
+            "raw": d.get("errors_raw"),
         },
     ),
     MowerSensorDescription(

@@ -105,10 +105,11 @@ own `MowerStatus` enum:
 | 20 | paused |
 | 22 | boundary signal error |
 
-**Error memory** holds up to 8 warning codes. They are single ASCII letters:
-`B` battery, `C` motor over-current, `L` lifted, `M` motor fault, `N` signal,
-`P` PCB over-temperature, `R` rolling over, `S` battery over-temperature,
-`T` tilted, `X` trapped.
+**Error memory** is one timestamped record (`YYYY-MM-DD HH:MM:SS` plus a
+code), not a list. The codes are printable ASCII letters: `B` battery,
+`C` motor over-current, `L` lifted, `M` motor fault, `N` signal, `P` PCB
+over-temperature, `R` rolling over, `S` battery over-temperature, `T` tilted,
+`X` trapped. Full table with causes: [docs/error-codes.md](docs/error-codes.md).
 
 **Run times** are three second counters: boot, machine, blade.
 
